@@ -1,89 +1,42 @@
-# FreeRTOS-Based EV Charger & Battery State Controller
+# Battery controller: pthread-based FreeRTOS API mock
 
-This project is a multi-tasking embedded firmware application designed using **FreeRTOS** APIs. It manages battery state monitoring, EV charging cycles (Level 2 Charging), and safety interlocks utilizing real-time scheduling primitives.
+This host simulation uses a custom API subset, NOT the actual FreeRTOS kernel.
+Task priority arguments are metadata only; tasks start at creation. The host OS
+schedules them. The mock has no MCU ISR APIs or priority inheritance.
 
-To compile and verify this code on development environments without physical MCU hardware, the project includes a **POSIX pthread-based FreeRTOS Port Wrapper** in C. This wrapper maps FreeRTOS task creation, queues, mutexes, and binary semaphores directly to standard OS threads and condition variables, enabling realistic multi-threaded simulation.
-
----
-
-## ⚙️ Multi-Tasking Architecture & Priorities
-
-The system runs four concurrent tasks managed by the scheduler:
-
-1. **Sensor Acquisition Task (`vSensorAcquisitionTask` - Priority: HIGH)**:
-   - Periodically executes every 50ms to read battery cell voltages and temperature sensors.
-   - Accesses the shared I2C peripheral bus inside a critical section guarded by the **`xI2CBusMutex`** to prevent data race conditions.
-   - Evaluates safety thresholds (Temp > 60°C). If exceeded, triggers the binary semaphore: `xSemaphoreGive(xFaultSemaphore)`.
-
-2. **Charger Controller Task (`vChargerControllerTask` - Priority: MEDIUM)**:
-   - Event-driven task that blocks indefinitely on the fault semaphore: `xSemaphoreTake(xFaultSemaphore)`.
-   - On wake-up, instantly transitions the charger state machine to `FAULT`, drives GPIO pins to open the charging relays (Contactors), and halts current flow.
-
-3. **Diagnostic Logging Task (`vDiagnosticLoggingTask` - Priority: LOW)**:
-   - Event-driven task that blocks waiting for diagnostic log messages to arrive in **`xLogQueue`**.
-   - Retrieves log pointers and writes them over the serial terminal interface (USART/stdout).
-
-4. **Simulation Harness / CLI Parser Task (`vSimulationHarnessTask` - Priority: LOW)**:
-   - Simulates the passage of real-time events.
-   - Periodically logs charger parameters and injects battery faults (simulated thermal runaway) to demonstrate safety preemption and recovery.
-
----
-
-## 📁 File Structure
-
-- **`inc/FreeRTOS.h`**, **`inc/task.h`**, **`inc/queue.h`**, **`inc/semphr.h`**: Mappings of standard FreeRTOS API headers.
-- **`src/freertos_port.c`**: POSIX wrapper code implementing FreeRTOS task, queue, and semaphore behaviors using `pthread` and condition variables.
-- **`src/main.c`**: Main system entry point, task setups, shared mutex/queue initializations, and task loop code.
-- **`Makefile`**: Multi-platform compiler configuration.
-
----
-
-## 🛠️ Build & Run Instructions
-
-### 1. Compile the Simulator
-```bash
-make
-```
-
-### 2. Run the Real-Time Simulation
-```bash
+~~~sh
+make all test
 ./bms_freertos_sim
-```
+~~~
 
-### 3. Clean Build Outputs
-```bash
-make clean
-```
+Shared data is protected by a mock mutex, flags are C11 atomic, threads are joined
+before resources are freed, and finite waits use timed condition waits. The mock
+mutex enforces ownership but does not model all FreeRTOS semantics. Create tasks
+from the main thread only. Handles expire after the mock scheduler joins them.
+Delete sync objects only after all users stop.
 
----
+Tests cover queues, finite waits, binary semaphore saturation, mock mutex, and
+thread completion. Host waits are not real-time timing evidence. The demo uses
+generated sensor values and a relay variable; no physical bus, contactor, charger,
+or STM32 execution has been validated.
 
-## 📊 Simulation Demo Output
+To port: use the real Cortex-M4 FreeRTOS port, FreeRTOSConfig.h, target IRQ handlers
+and CMSIS board support. Re-check periods, priorities, bounded ISR work, FromISR
+calls, stack sizing, and reset/fault behavior on the actual board.
 
-Executing the binary (`./bms_freertos_sim`) runs the tasks concurrently and demonstrates the safety interlock sequence:
+## STM32F446RE firmware target
 
-```text
-==================================================================
-     FreeRTOS EV CHARGER & SAFETY CONTROLLER FIRMWARE             
-==================================================================
+[Standalone MCU target](firmware/stm32f446-bench/README.md) includes register-level
+MPU6050 I2C, UART interrupt rings, circular ADC DMA, TIM2, safety fault handling
+and bxCAN internal silent loopback. Both bare-metal and actual FreeRTOS V11.1.0
+kernel variants compile and link with ARM GCC and warnings treated as errors.
+This is separate from the host mock above. Board execution, peripheral timing
+and electrical behavior remain unverified. Cell inputs are synthetic and the
+output is an LED surrogate. See the target README for wiring and validation.
 
-[FreeRTOS-Port] OS Scheduler started. Standard POSIX threads running.
-[t=  0ms] | System State: CHARGING | Charging Relay: CLOSED | Current: 32.0 A | Temp: 34.2 C
-[SYSTEM-INIT] EV Charger initiated. Mode: Level 2 Charging, Rate: 32A.
-[t=100ms] | System State: CHARGING | Charging Relay: CLOSED | Current: 32.0 A | Temp: 34.2 C
-...
-[t=500ms] | System State: CHARGING | Charging Relay: CLOSED | Current: 32.0 A | Temp: 34.2 C
-
-[SIMULATION EVENT] Injecting battery thermal runaway (Sensor 0 > 60 C)...
-[SENSOR-TASK] Warning: Critical high temperature detected on Sensor 0!
-[STATE-TASK] EMERGENCY TRIP: Fault semaphore received. Opened charging relay.
-[t=600ms] | System State: FAULT    | Charging Relay: OPEN   | Current:  0.0 A | Temp: 68.5 C
-...
-[t=1300ms] | System State: FAULT    | Charging Relay: OPEN   | Current:  0.0 A | Temp: 68.5 C
-
-[SIMULATION EVENT] Resetting fault state. Resuming charging...
-[CLI-SHELL] Fault cleared. Charging contactors re-engaged.
-[t=1400ms] | System State: CHARGING | Charging Relay: CLOSED | Current: 32.0 A | Temp: 34.2 C
-[t=1500ms] | System State: CHARGING | Charging Relay: CLOSED | Current: 32.0 A | Temp: 34.2 C
-...
-Simulation finished. Stopping OS threads...
+```sh
+cd firmware/stm32f446-bench
+python3 build.py
+clang -Wall -Wextra -Werror -std=c11 -fsanitize=address,undefined -Iinclude src/controller.c src/mpu6050.c tests/test_logic.c -o build/test_logic
+./build/test_logic
 ```

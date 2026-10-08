@@ -17,4 +17,6 @@ SemaphoreHandle_t xSemaphoreCreateMutex_Impl(void);
 BaseType_t xSemaphoreTake_Impl(SemaphoreHandle_t xSemaphore, TickType_t xTicksToWait);
 BaseType_t xSemaphoreGive_Impl(SemaphoreHandle_t xSemaphore);
 
+void vSemaphoreDelete(SemaphoreHandle_t sem);
+
 #endif /* INC_SEMPHR_H */

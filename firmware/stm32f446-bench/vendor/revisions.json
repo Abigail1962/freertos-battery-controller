@@ -1,0 +1,14 @@
+{
+  "device": {
+    "repository": "STMicroelectronics/cmsis-device-f4",
+    "sha": "9192c7b9df75a142f2027ab266601fe061fc00b3"
+  },
+  "core": {
+    "repository": "ARM-software/CMSIS_5",
+    "sha": "2b7495b8535bdcb306dac29b9ded4cfb679d7e5c"
+  },
+  "freertos": {
+    "repository": "FreeRTOS/FreeRTOS-Kernel",
+    "sha": "dbf70559b27d39c1fdb68dfb9a32140b6a6777a0"
+  }
+}

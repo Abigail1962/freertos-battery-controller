@@ -24,4 +24,6 @@ BaseType_t xQueueReceive(
     TickType_t xTicksToWait
 );
 
+void vQueueDelete(QueueHandle_t queue);
+
 #endif /* INC_QUEUE_H */

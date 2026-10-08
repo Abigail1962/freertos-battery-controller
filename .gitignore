@@ -1,3 +1,17 @@
 bms_freertos_sim
 obj/
 .DS_Store
+
+
+# Generated build and sanitizer outputs
+build/
+*.o
+*.elf
+*.bin
+*.map
+*.dSYM/
+__pycache__/
+test_host
+test_threads
+test_memory
+app/sensor_logger
